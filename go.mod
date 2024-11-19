@@ -8,6 +8,7 @@ toolchain go1.22.9
 
 require (
 	github.com/SwissOpenEM/globus v0.1.1
+	github.com/alitto/pond/v2 v2.1.4
 	github.com/fatih/color v1.17.0
 	github.com/getkin/kin-openapi v0.124.0
 	github.com/gin-contrib/cors v1.7.2

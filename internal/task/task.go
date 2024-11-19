@@ -39,6 +39,7 @@ type IngestionTask struct {
 	DatasetFolder
 	DatasetMetadata map[string]interface{}
 	TransferMethod  TransferMethod
+	Context         context.Context
 	Cancel          context.CancelFunc
 	status          *TaskStatus
 	statusLock      *sync.RWMutex

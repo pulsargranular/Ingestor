@@ -95,11 +95,8 @@ func (w *TaskQueue) CreateTaskFromMetadata(id uuid.UUID, metadataMap map[string]
 // Go routine that listens on the channel continously for upload requests and executes uploads.
 func (w *TaskQueue) startWorker() {
 	for ingestionTask := range w.inputChannel {
-		task_context, cancel := context.WithCancel(w.AppContext)
 
-		ingestionTask.Cancel = cancel
-
-		result := w.IngestDataset(task_context, ingestionTask)
+		result := w.IngestDataset(ingestionTask.Context, ingestionTask)
 		if result.Error == nil {
 			falseVal := false
 			trueVal := true
@@ -150,12 +147,15 @@ func (w *TaskQueue) RemoveTask(id uuid.UUID) error {
 
 func (w *TaskQueue) ScheduleTask(id uuid.UUID) {
 	w.taskListLock.RLock()
-	ingestionTask, found := w.datasetUploadTasks.Get(id)
+	ingestionTask := w.datasetUploadTasks.GetElement(id)
 	w.taskListLock.RUnlock()
-	if !found {
+	if ingestionTask == nil {
 		fmt.Println("Scheduling upload failed for: ", id)
 		return
 	}
+	task_context, cancel := context.WithCancel(w.AppContext)
+	ingestionTask.Value.Context = task_context
+	ingestionTask.Value.Cancel = cancel
 
 	// Go routine to handle result and errors
 	go func(id uuid.UUID) {
@@ -167,7 +167,7 @@ func (w *TaskQueue) ScheduleTask(id uuid.UUID) {
 			w.Notifier.OnTaskCompleted(id, taskResult.Elapsed_seconds)
 			println(taskResult.Dataset_PID, taskResult.Elapsed_seconds)
 		}
-	}(ingestionTask.DatasetFolder.Id)
+	}(ingestionTask.Value.DatasetFolder.Id)
 
 	// Go routine to schedule the upload asynchronously
 	go func(folder task.DatasetFolder) {
@@ -175,8 +175,8 @@ func (w *TaskQueue) ScheduleTask(id uuid.UUID) {
 		w.Notifier.OnTaskScheduled(folder.Id)
 
 		// this channel is read by the go routines that does the actual upload
-		w.inputChannel <- ingestionTask
-	}(ingestionTask.DatasetFolder)
+		w.inputChannel <- ingestionTask.Value
+	}(ingestionTask.Value.DatasetFolder)
 }
 
 func (w *TaskQueue) GetTaskStatus(id uuid.UUID) (task.TaskStatus, error) {

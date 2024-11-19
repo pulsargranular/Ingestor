@@ -106,15 +106,10 @@
     items = items;
   });
 
-  EventsOn(
-    "progress-update",
-    (id, current_file, total_files, elapsed_seconds) => {
-      const perc = (parseFloat(current_file) / parseFloat(total_files)) * 100;
-      items[id].progress = perc.toFixed(0);
-      items[id].status +=
-        "\n" + "Uploading... " + secondsToStr(elapsed_seconds);
-    },
-  );
+  EventsOn("progress-update", (id, percentage, elapsed_seconds) => {
+    items[id].progress = percentage.toFixed(0);
+    items[id].status += "\n" + "Uploading... " + secondsToStr(elapsed_seconds);
+  });
 </script>
 
 <main>
