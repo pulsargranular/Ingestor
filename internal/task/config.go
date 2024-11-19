@@ -1,12 +1,7 @@
 package task
 
 type S3TransferConfig struct {
-	Endpoint string `string:"Endpoint" validate:"hostname_port"`
-	Bucket   string `string:"Bucket"`
-	Location string `string:"Location"`
-	User     string `string:"User"`
-	Password string `string:"Password"`
-	Checksum bool   `bool:"Checksum"`
+	Endpoint string `string:"Endpoint" validate:"http_url"`
 }
 
 type GlobusTransferConfig struct {

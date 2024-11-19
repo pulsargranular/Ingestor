@@ -14,12 +14,7 @@ func createExpectedValidConfigS3() task.TransferConfig {
 	return task.TransferConfig{
 		Method: "S3",
 		S3: task.S3TransferConfig{
-			Endpoint: "s3:9000",
-			Bucket:   "landingzone",
-			Location: "eu-west-1",
-			User:     "minio_user",
-			Password: "minio_pass",
-			Checksum: true,
+			Endpoint: "http://localhost:8000",
 		},
 	}
 }

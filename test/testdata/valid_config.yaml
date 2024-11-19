@@ -14,12 +14,7 @@ Transfer:
   #   Scopes:
   #     - "urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/[collection_id1]/data_access]"
   S3:
-    Endpoint: s3:9000
-    Bucket: landingzone
-    Checksum: true
-    Location: "eu-west-1"
-    User: "minio_user"
-    Password: "minio_pass"
+    Endpoint: http://localhost:8000
 Misc:
   ConcurrencyLimit: 2
   Port: 8888
