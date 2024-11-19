@@ -201,7 +201,11 @@ func IngestDataset(
 
 	switch ingestionTask.TransferMethod {
 	case task.TransferS3:
-		_, err = UploadS3(task_context, datasetId, datasetFolder, ingestionTask.DatasetFolder.Id, config.Transfer.S3, notifier)
+		fileList := []string{}
+		for _, f := range fullFileArray {
+			fileList = append(fileList, f.Path)
+		}
+		err = UploadS3(task_context, datasetId, datasetFolder, fileList, ingestionTask.DatasetFolder.Id, config.Transfer.S3, notifier)
 	case task.TransferGlobus:
 		// globus doesn't work with absolute folders, this library uses sourcePrefix to adapt the path to the globus' own path from a relative path
 		relativeDatasetFolder := strings.TrimPrefix(datasetFolder, config.WebServer.CollectionLocation)

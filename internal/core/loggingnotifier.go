@@ -26,6 +26,6 @@ func (n *LoggingNotifier) OnTaskFailed(id uuid.UUID, err error) {
 func (n *LoggingNotifier) OnTaskCompleted(id uuid.UUID, elapsedSeconds int) {
 	slog.Info("Task completed", "id", id, "elapsed", elapsedSeconds)
 }
-func (n *LoggingNotifier) OnTaskProgress(id uuid.UUID, currentFile int, totalFiles int, elapsedSeconds int) {
-	slog.Info("Task progress", "id", id, "percentage", currentFile/totalFiles*100, "elapsed", elapsedSeconds)
+func (n *LoggingNotifier) OnTaskProgress(id uuid.UUID, percentage float32, elapsedSeconds int) {
+	slog.Info("Task progress", "id", id, "percentage", percentage, "elapsed", elapsedSeconds)
 }

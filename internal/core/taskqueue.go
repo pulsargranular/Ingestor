@@ -241,7 +241,7 @@ func TestIngestionFunction(task_context context.Context, task task.IngestionTask
 		time.Sleep(time.Second * 1)
 		now := time.Now()
 		elapsed := now.Sub(start)
-		notifier.OnTaskProgress(task.DatasetFolder.Id, i+1, 10, int(elapsed.Seconds()))
+		notifier.OnTaskProgress(task.DatasetFolder.Id, float32(i)/10.0*100, int(elapsed.Seconds()))
 	}
 	return "1", nil
 
