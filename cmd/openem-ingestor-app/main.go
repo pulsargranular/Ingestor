@@ -16,7 +16,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed frontend/src/assets/images/android-chrome-512x512.png
+//go:embed frontend/src/assets/images/android-chrome-512x512_trans.png
 var icon []byte
 
 // String can be overwritten by using linker flags: -ldflags "-X main.version=VERSION"
