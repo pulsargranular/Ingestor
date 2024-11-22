@@ -6,11 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"os"
+	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/alitto/pond/v2"
@@ -19,7 +23,6 @@ import (
 
 const (
 	chunkSize            = 5 * 1024 * 1024 // 5 MB
-	server               = "http://localhost:8888"
 	presigned_url_path   = "/presignedUrls"
 	complete_upload_path = "/completeUpload"
 )
@@ -29,15 +32,20 @@ type presignedUrlBody struct {
 	Parts      int    `json:"parts"`
 }
 
-type presignedUrlResp struct {
+type presignedUrlRespMultipart struct {
 	UploadID string   `json:"uploadID"`
 	Urls     []string `json:"urls"`
 }
 
+type presignedUrlResp struct {
+	Url string `json:"url"`
+}
+
 type completeUploadBody struct {
-	ObjectName string               `json:"object_name"`
-	UploadID   string               `json:"uploadID"`
-	Parts      []minio.CompletePart `json:"parts"`
+	ObjectName     string               `json:"object_name"`
+	UploadID       string               `json:"uploadID"`
+	Parts          []minio.CompletePart `json:"parts"`
+	ChecksumSHA256 string               `json:"checksumSHA256"`
 }
 
 type MultipartInput struct {
@@ -46,7 +54,8 @@ type MultipartInput struct {
 }
 
 type HttpUploader struct {
-	Pool pond.Pool
+	Pool   pond.Pool
+	Client http.Client
 }
 
 var instance *HttpUploader
@@ -61,61 +70,70 @@ func GetHttpUploader() *HttpUploader {
 
 // Fetches presigned url(s) from API server. If parts > 1, multipart upload
 // is initiated
-func getPresignedUrls(object_name string, parts int, endpoint string) (string, []string, error) {
+func getPresignedUrlsMultipart(object_name string, part int, endpoint string) (string, []string, error) {
 	body := presignedUrlBody{
 		ObjectName: object_name,
-		Parts:      parts,
+		Parts:      part,
 	}
 	jsonBody, _ := json.Marshal(body)
-	bodyReader := bytes.NewReader(jsonBody)
-
-	req, err := http.NewRequest("POST", endpoint+presigned_url_path, bodyReader)
+	resBody, err := doPresignedUrlRequest(jsonBody, endpoint)
 
 	if err != nil {
-		return "", []string{}, fmt.Errorf("error creating request for %s. error: %s", object_name, err.Error())
+		return "", []string{}, err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	defer resp.Body.Close()
-	if err != nil {
-		return "", []string{}, fmt.Errorf("error executing request for %s. error: %s", object_name, err.Error())
-	}
-
-	resBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", []string{}, fmt.Errorf("failed to read response body for %s. error: %s", object_name, err.Error())
-	}
-
-	var result presignedUrlResp
+	var result presignedUrlRespMultipart
 	if err := json.Unmarshal(resBody, &result); err != nil {
 		return "", []string{}, fmt.Errorf("error unmarshalling JSON for %s. error: %s", object_name, err.Error())
 	}
 
 	return result.UploadID, result.Urls, nil
+}
+
+// Fetches presigned url(s) from API server. If parts > 1, multipart upload
+// is initiated
+func getPresignedUrl(object_name string, endpoint string) (string, error) {
+	body := presignedUrlBody{
+		ObjectName: object_name,
+		Parts:      1,
+	}
+	jsonBody, _ := json.Marshal(body)
+	resBody, err := doPresignedUrlRequest(jsonBody, endpoint)
+
+	if err != nil {
+		return "", err
+	}
+
+	var result presignedUrlResp
+	if err := json.Unmarshal(resBody, &result); err != nil {
+		return "", fmt.Errorf("error unmarshalling JSON for %s. error: %s", object_name, err.Error())
+	}
+
+	return result.Url, err
 
 }
 
-func completeMultiPartUpload(object_name string, uploadID string, parts []minio.CompletePart) error {
+func completeMultiPartUpload(object_name string, uploadID string, endpoint string, parts []minio.CompletePart, full_file_checksum string) error {
 	body := completeUploadBody{
-		ObjectName: object_name,
-		UploadID:   uploadID,
-		Parts:      parts,
+		ObjectName:     object_name,
+		UploadID:       uploadID,
+		Parts:          parts,
+		ChecksumSHA256: full_file_checksum,
 	}
 	jsonBody, _ := json.Marshal(body)
 	fmt.Println(string(jsonBody))
 	bodyReader := bytes.NewReader(jsonBody)
-	req, _ := http.NewRequest("POST", server+complete_upload_path, bodyReader)
+	req, _ := http.NewRequest("POST", endpoint+complete_upload_path, bodyReader)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := GetHttpUploader().Client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		// return errors.New("Fail")
+		return errors.New("Fail")
 	}
 
 	return nil
@@ -153,7 +171,7 @@ func uploadFile(ctx context.Context, filePath string, objectName string, endpoin
 
 func doUploadSingleFile(ctx context.Context, objectName string, file *os.File, endpoint string, notifier *TransferNotifier) error {
 
-	_, url, err := getPresignedUrls(objectName, 1, endpoint)
+	url, err := getPresignedUrl(objectName, endpoint)
 	if err != nil {
 		return err
 	}
@@ -162,8 +180,8 @@ func doUploadSingleFile(ctx context.Context, objectName string, file *os.File, e
 		return err
 	}
 
-	base64hash := calculateHashB64(&data)
-	_, err = uploadData(ctx, &data, url[0], base64hash)
+	base64hash, _ := calculateHashB64(&data)
+	_, err = uploadData(ctx, &data, url, base64hash)
 	if err != nil {
 		return err
 	}
@@ -178,7 +196,7 @@ func doUploadSingleFile(ctx context.Context, objectName string, file *os.File, e
 func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, file *os.File, endpoint string, notifier *TransferNotifier) error {
 	partCount := int(math.Ceil(float64(totalSize) / float64(chunkSize)))
 
-	uploadID, presignedURLs, err := getPresignedUrls(objectName, partCount, endpoint)
+	uploadID, presignedURLs, err := getPresignedUrlsMultipart(objectName, partCount, endpoint)
 	if err != nil {
 		return err
 	}
@@ -187,6 +205,7 @@ func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, 
 
 	group := uploader.Pool.NewGroupContext(ctx)
 	parts := make([]minio.CompletePart, partCount)
+	partChecksums := make([]string, partCount)
 
 	for partNumber := 0; partNumber < partCount; partNumber++ {
 		group.SubmitErr(func() error {
@@ -194,17 +213,19 @@ func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, 
 			n, _ := file.ReadAt(partData, int64(partNumber)*chunkSize)
 			partData = partData[:n]
 
-			base64hash := calculateHashB64(&partData)
+			base64hash, hash := calculateHashB64(&partData)
+			partChecksums[partNumber] = string(hash[:])
 			resp, err := uploadData(ctx, &partData, presignedURLs[partNumber], base64hash)
 			if err != nil {
 				return err
 			}
 
 			notifier.AddUploadedBytes(int64(n))
-			if partNumber%2 == 0 {
-				notifier.UpdateTaskProgress()
-			}
-			parts[partNumber] = minio.CompletePart{ETag: resp.Header.Get("ETag"), PartNumber: partNumber + 1, ChecksumSHA256: base64hash}
+
+			notifier.UpdateTaskProgress()
+
+			etag := strings.Replace(resp.Header.Get("ETag"), "\"", "", -1)
+			parts[partNumber] = minio.CompletePart{ETag: etag, PartNumber: partNumber + 1, ChecksumSHA256: base64hash}
 
 			fmt.Printf("Uploaded part %d\n", partNumber+1)
 			return nil
@@ -216,7 +237,12 @@ func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, 
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	err = completeMultiPartUpload(objectName, uploadID, parts)
+	c := strings.Join(partChecksums, "")
+	n := sha256.Sum256([]byte(c))
+	base64hash := base64.StdEncoding.EncodeToString(n[:])
+	slog.Info("Calculated file digest", "file", file.Name(), "sha256", base64hash)
+
+	err = completeMultiPartUpload(objectName, uploadID, endpoint, parts, base64hash)
 	if err != nil {
 		return fmt.Errorf("error completing multipart upload: %w", err)
 	}
@@ -225,10 +251,10 @@ func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, 
 	return nil
 }
 
-func calculateHashB64(data *[]byte) string {
+func calculateHashB64(data *[]byte) (string, [32]byte) {
 	hash := sha256.Sum256(*data)
 	base64hash := base64.StdEncoding.EncodeToString(hash[:])
-	return base64hash
+	return base64hash, hash
 }
 
 func uploadData(ctx context.Context, data *[]byte, presignedURL string, base64hash string) (*http.Response, error) {
@@ -244,7 +270,7 @@ func uploadData(ctx context.Context, data *[]byte, presignedURL string, base64ha
 	req.Header.Set("x-amz-checksum-sha256", base64hash)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := GetHttpUploader().Client.Do(req)
 	if err != nil {
 		return resp, err
 	}
@@ -254,4 +280,30 @@ func uploadData(ctx context.Context, data *[]byte, presignedURL string, base64ha
 		return resp, fmt.Errorf("upload failed: %d %s", resp.StatusCode, resp.Status)
 	}
 	return resp, nil
+}
+
+func doPresignedUrlRequest(jsonBody []byte, endpoint string) ([]byte, error) {
+	bodyReader := bytes.NewReader(jsonBody)
+	req, err := http.NewRequest("POST", endpoint+presigned_url_path, bodyReader)
+
+	if err != nil {
+		return []byte{}, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := GetHttpUploader().Client.Do(req)
+	if err != nil {
+		return []byte{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return []byte{}, err
+	}
+
+	resBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return []byte{}, err
+	}
+	return resBody, nil
 }
