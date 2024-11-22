@@ -2,14 +2,15 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/SwissOpenEM/Ingestor/internal/task"
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 )
 
 // Progress notifier object for Minio upload
@@ -32,52 +33,61 @@ func (pn *TransferNotifier) UpdateTaskProgress() {
 	pn.notifier.OnTaskProgress(pn.id, float32(pn.bytesTansfered)/float32(pn.totalBytes)*100, int(t.Seconds()))
 }
 
+type S3Objects struct {
+	Files       []string
+	ObjectNames []string
+	TotalBytes  int64
+}
+
 // Upload all files in a folder using presinged urls
 func UploadS3(ctx context.Context, datasetPID string, datasetSourceFolder string, fileList []string, uploadId uuid.UUID, options task.S3TransferConfig, notifier ProgressNotifier) error {
 
 	if len(fileList) == 0 {
-		return nil
+		return fmt.Errorf("empty file list provided")
 	}
 
-	totalBytes := int64(0)
+	s3Objects := S3Objects{}
 	for _, f := range fileList {
 		s, _ := os.Stat(path.Join(datasetSourceFolder, f))
-		totalBytes += s.Size()
+		s3Objects.TotalBytes += s.Size()
+		s3Objects.Files = append(s3Objects.Files, path.Join(datasetSourceFolder, f))
+		s3Objects.ObjectNames = append(s3Objects.ObjectNames, "openem-network/datasets/"+datasetPID+"/raw_files/"+f)
 	}
 
-	transferNotifier := TransferNotifier{totalBytes: totalBytes, bytesTansfered: 0, startTime: time.Now(), id: uploadId, notifier: notifier}
+	transferNotifier := TransferNotifier{totalBytes: s3Objects.TotalBytes, bytesTansfered: 0, startTime: time.Now(), id: uploadId, notifier: notifier}
 
-	wg := sync.WaitGroup{}
-	filesChannel := make(chan string, len(fileList))
-	nWorkers := max(1, len(fileList))
-	// start the workers
+	err := uploadFiles(ctx, &s3Objects, options, &transferNotifier, uploadId)
+	return err
+}
+
+func uploadFiles(ctx context.Context, s3Objects *S3Objects, options task.S3TransferConfig, transferNotifier *TransferNotifier, uploadId uuid.UUID) error {
+	errorGroup, ctx := errgroup.WithContext(ctx)
+	objectsChannel := make(chan int, len(s3Objects.Files))
+
+	nWorkers := max(2, len(s3Objects.Files))
+
 	for t := 0; t < nWorkers; t++ {
-		wg.Add(1)
-		go func(filesChannel <-chan string, wg *sync.WaitGroup) {
-			for f := range filesChannel {
+		errorGroup.Go(
+			func() error {
+				for idx := range objectsChannel {
 				select {
 				case <-ctx.Done():
 					transferNotifier.notifier.OnTaskCanceled(uploadId)
-					wg.Done()
-					return
+						return ctx.Err()
 				default:
-					filePath := path.Join(datasetSourceFolder, f)
-					objectName := "openem-network/datasets/" + datasetPID + "/raw_files/" + f
-					uploadFile(ctx, filePath, objectName, options.Endpoint, &transferNotifier)
+						err := uploadFile(ctx, s3Objects.Files[idx], s3Objects.ObjectNames[idx], options.Endpoint, transferNotifier)
+						if err != nil {
+							return err
+						}
+					}
 				}
-			}
-			wg.Done()
-		}(filesChannel, &wg)
+				return nil
+			})
 	}
-	for _, f := range fileList {
-		filesChannel <- f
+	for idx := range s3Objects.Files {
+		objectsChannel <- idx
 	}
-	close(filesChannel)
-	wg.Wait()
+	close(objectsChannel)
+	return errorGroup.Wait()
 
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	return nil
 }

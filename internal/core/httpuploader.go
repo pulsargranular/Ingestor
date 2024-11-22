@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	chunkSize            = 5 * 1024 * 1024 // 5 MB
-	presigned_url_path   = "/presignedUrls"
-	complete_upload_path = "/completeUpload"
+	chunkSize                = 5 * 1024 * 1024 // 5 MB
+	presignedUrlPath         = "/presignedUrls"
+	completeUploadPath       = "/completeUpload"
+	abortMultiPartUplaodPath = "/abortMultipartUpload"
 )
 
 type presignedUrlBody struct {
@@ -41,11 +42,15 @@ type presignedUrlResp struct {
 	Url string `json:"url"`
 }
 
-type completeUploadBody struct {
+type completeMultipartUploadBody struct {
 	ObjectName     string               `json:"object_name"`
 	UploadID       string               `json:"uploadID"`
 	Parts          []minio.CompletePart `json:"parts"`
 	ChecksumSHA256 string               `json:"checksumSHA256"`
+}
+type abortMultipartUploadBody struct {
+	ObjectName string `json:"object_name"`
+	UploadID   string `json:"uploadID"`
 }
 
 type MultipartInput struct {
@@ -76,7 +81,7 @@ func getPresignedUrlsMultipart(object_name string, part int, endpoint string) (s
 		Parts:      part,
 	}
 	jsonBody, _ := json.Marshal(body)
-	resBody, err := doPresignedUrlRequest(jsonBody, endpoint)
+	resBody, err := doRequest("POST", jsonBody, presignedUrlPath, endpoint)
 
 	if err != nil {
 		return "", []string{}, err
@@ -98,7 +103,7 @@ func getPresignedUrl(object_name string, endpoint string) (string, error) {
 		Parts:      1,
 	}
 	jsonBody, _ := json.Marshal(body)
-	resBody, err := doPresignedUrlRequest(jsonBody, endpoint)
+	resBody, err := doRequest("POST", jsonBody, presignedUrlPath, endpoint)
 
 	if err != nil {
 		return "", err
@@ -114,7 +119,7 @@ func getPresignedUrl(object_name string, endpoint string) (string, error) {
 }
 
 func completeMultiPartUpload(object_name string, uploadID string, endpoint string, parts []minio.CompletePart, full_file_checksum string) error {
-	body := completeUploadBody{
+	body := completeMultipartUploadBody{
 		ObjectName:     object_name,
 		UploadID:       uploadID,
 		Parts:          parts,
@@ -123,7 +128,7 @@ func completeMultiPartUpload(object_name string, uploadID string, endpoint strin
 	jsonBody, _ := json.Marshal(body)
 	fmt.Println(string(jsonBody))
 	bodyReader := bytes.NewReader(jsonBody)
-	req, _ := http.NewRequest("POST", endpoint+complete_upload_path, bodyReader)
+	req, _ := http.NewRequest("POST", endpoint+completeUploadPath, bodyReader)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := GetHttpUploader().Client.Do(req)
@@ -164,9 +169,26 @@ func uploadFile(ctx context.Context, filePath string, objectName string, endpoin
 
 	}
 
-	err = doUploadMultipart(ctx, totalSize, objectName, file, endpoint, notifier)
+	uploadID, err := doUploadMultipart(ctx, totalSize, objectName, file, endpoint, notifier)
+	if err != nil {
+		abortMultipartUpload(uploadID, objectName, endpoint)
+		if err != nil {
+			slog.Error("Failed to abort mulitpart upload", "uploadID", uploadID, "object", objectName)
+		}
+	}
 	return err
 
+}
+
+func abortMultipartUpload(uploadID string, objectName string, endpoint string) error {
+	body := abortMultipartUploadBody{
+		ObjectName: objectName,
+		UploadID:   uploadID,
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	_, err := doRequest("POST", jsonBody, abortMultiPartUplaodPath, endpoint)
+	return err
 }
 
 func doUploadSingleFile(ctx context.Context, objectName string, file *os.File, endpoint string, notifier *TransferNotifier) error {
@@ -193,12 +215,12 @@ func doUploadSingleFile(ctx context.Context, objectName string, file *os.File, e
 	return nil
 }
 
-func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, file *os.File, endpoint string, notifier *TransferNotifier) error {
+func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, file *os.File, endpoint string, notifier *TransferNotifier) (string, error) {
 	partCount := int(math.Ceil(float64(totalSize) / float64(chunkSize)))
 
 	uploadID, presignedURLs, err := getPresignedUrlsMultipart(objectName, partCount, endpoint)
 	if err != nil {
-		return err
+		return uploadID, err
 	}
 
 	uploader := GetHttpUploader()
@@ -232,11 +254,12 @@ func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, 
 		})
 	}
 
-	group.Wait()
+	err = group.Wait()
 
-	if ctx.Err() != nil {
-		return ctx.Err()
+	if err != nil {
+		return uploadID, ctx.Err()
 	}
+
 	c := strings.Join(partChecksums, "")
 	n := sha256.Sum256([]byte(c))
 	base64hash := base64.StdEncoding.EncodeToString(n[:])
@@ -244,11 +267,11 @@ func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, 
 
 	err = completeMultiPartUpload(objectName, uploadID, endpoint, parts, base64hash)
 	if err != nil {
-		return fmt.Errorf("error completing multipart upload: %w", err)
+		return uploadID, fmt.Errorf("error completing multipart upload: %w", err)
 	}
 
 	fmt.Println("Multipart upload completed successfully.")
-	return nil
+	return uploadID, nil
 }
 
 func calculateHashB64(data *[]byte) (string, [32]byte) {
@@ -282,9 +305,9 @@ func uploadData(ctx context.Context, data *[]byte, presignedURL string, base64ha
 	return resp, nil
 }
 
-func doPresignedUrlRequest(jsonBody []byte, endpoint string) ([]byte, error) {
+func doRequest(method string, jsonBody []byte, path string, endpoint string) ([]byte, error) {
 	bodyReader := bytes.NewReader(jsonBody)
-	req, err := http.NewRequest("POST", endpoint+presigned_url_path, bodyReader)
+	req, err := http.NewRequest(method, endpoint+presignedUrlPath, bodyReader)
 
 	if err != nil {
 		return []byte{}, err
@@ -298,7 +321,7 @@ func doPresignedUrlRequest(jsonBody []byte, endpoint string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return []byte{}, err
+		return []byte{}, fmt.Errorf("%s request failed: %s%s", method, endpoint, path)
 	}
 
 	resBody, err := io.ReadAll(resp.Body)
