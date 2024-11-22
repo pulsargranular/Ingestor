@@ -1,4 +1,4 @@
-package core
+package s3upload
 
 import (
 	"context"
@@ -20,7 +20,7 @@ type TransferNotifier struct {
 	FilesCount     int
 	startTime      time.Time
 	id             uuid.UUID
-	notifier       ProgressNotifier
+	notifier       task.ProgressNotifier
 	TaskStatus     *task.TaskStatus
 }
 
@@ -40,7 +40,7 @@ type S3Objects struct {
 }
 
 // Upload all files in a folder using presinged urls
-func UploadS3(ctx context.Context, datasetPID string, datasetSourceFolder string, fileList []string, uploadId uuid.UUID, options task.S3TransferConfig, notifier ProgressNotifier) error {
+func UploadS3(ctx context.Context, datasetPID string, datasetSourceFolder string, fileList []string, uploadId uuid.UUID, options task.S3TransferConfig, notifier task.ProgressNotifier) error {
 
 	if len(fileList) == 0 {
 		return fmt.Errorf("empty file list provided")
@@ -70,11 +70,11 @@ func uploadFiles(ctx context.Context, s3Objects *S3Objects, options task.S3Trans
 		errorGroup.Go(
 			func() error {
 				for idx := range objectsChannel {
-				select {
-				case <-ctx.Done():
-					transferNotifier.notifier.OnTaskCanceled(uploadId)
+					select {
+					case <-ctx.Done():
+						transferNotifier.notifier.OnTaskCanceled(uploadId)
 						return ctx.Err()
-				default:
+					default:
 						err := uploadFile(ctx, s3Objects.Files[idx], s3Objects.ObjectNames[idx], options.Endpoint, transferNotifier)
 						if err != nil {
 							return err

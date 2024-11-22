@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/SwissOpenEM/Ingestor/internal/metadataextractor"
+	"github.com/SwissOpenEM/Ingestor/internal/s3upload"
 	"github.com/SwissOpenEM/Ingestor/internal/task"
 	"github.com/fatih/color"
 	"github.com/paulscherrerinstitute/scicat-cli/v3/datasetIngestor"
@@ -116,7 +117,7 @@ func IngestDataset(
 	task_context context.Context,
 	ingestionTask task.IngestionTask,
 	config Config,
-	notifier ProgressNotifier,
+	notifier task.ProgressNotifier,
 ) (string, error) {
 	var http_client = &http.Client{
 		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
@@ -205,12 +206,13 @@ func IngestDataset(
 		for _, f := range fullFileArray {
 			fileList = append(fileList, f.Path)
 		}
-		err = UploadS3(task_context, datasetId, datasetFolder, fileList, ingestionTask.DatasetFolder.Id, config.Transfer.S3, notifier)
+		err = s3upload.UploadS3(task_context, datasetId, datasetFolder, fileList, ingestionTask.DatasetFolder.Id, config.Transfer.S3, notifier)
 	case task.TransferGlobus:
 		// globus doesn't work with absolute folders, this library uses sourcePrefix to adapt the path to the globus' own path from a relative path
 		relativeDatasetFolder := strings.TrimPrefix(datasetFolder, config.WebServer.CollectionLocation)
 		err = GlobusTransfer(config.Transfer.Globus, ingestionTask, task_context, ingestionTask.DatasetFolder.Id, relativeDatasetFolder, fullFileArray, notifier)
 	_:
+		return "", fmt.Errorf("unknown transfer method: %s", ingestionTask.TransferMethod)
 	}
 
 	if err != nil {
