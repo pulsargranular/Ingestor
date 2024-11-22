@@ -44,9 +44,9 @@ func GetHttpUploader() *HttpUploader {
 var presignedUrlServerClient *ClientWithResponses
 var once_presignedUrlServerClient sync.Once
 
-func GetPresignedUrlServer() *ClientWithResponses {
+func GetPresignedUrlServer(endpoint string) *ClientWithResponses {
 	once_presignedUrlServerClient.Do(func() {
-		presignedUrlServerClient, _ = NewClientWithResponses("http://localhost:8888")
+		presignedUrlServerClient, _ = NewClientWithResponses(endpoint)
 	})
 	return presignedUrlServerClient
 }
@@ -55,7 +55,7 @@ func GetPresignedUrlServer() *ClientWithResponses {
 // is initiated
 func getPresignedUrls(object_name string, part int, endpoint string) (string, []string, error) {
 
-	r, err := GetPresignedUrlServer().GetPresignedUrlsWithResponse(context.Background(), PresignedUrlBody{
+	r, err := GetPresignedUrlServer(endpoint).GetPresignedUrlsWithResponse(context.Background(), PresignedUrlBody{
 		ObjectName: object_name,
 		Parts:      part,
 	})
@@ -71,7 +71,7 @@ func getPresignedUrls(object_name string, part int, endpoint string) (string, []
 }
 
 func completeMultiPartUpload(object_name string, uploadID string, endpoint string, parts []CompletePart, full_file_checksum string) error {
-	r, err := GetPresignedUrlServer().CompleteUploadWithResponse(context.Background(), CompleteUploadBody{
+	r, err := GetPresignedUrlServer(endpoint).CompleteUploadWithResponse(context.Background(), CompleteUploadBody{
 		ObjectName:     object_name,
 		UploadID:       uploadID,
 		Parts:          parts,
@@ -124,7 +124,7 @@ func uploadFile(ctx context.Context, filePath string, objectName string, endpoin
 }
 
 func abortMultipartUpload(uploadID string, objectName string, endpoint string) error {
-	r, err := GetPresignedUrlServer().AbortMultipartUploadWithResponse(context.Background(), AbortUploadBody{
+	r, err := GetPresignedUrlServer(endpoint).AbortMultipartUploadWithResponse(context.Background(), AbortUploadBody{
 		ObjectName: objectName,
 		UploadID:   uploadID,
 	})
@@ -252,29 +252,3 @@ func uploadData(ctx context.Context, data *[]byte, presignedURL string, base64ha
 	}
 	return resp, nil
 }
-
-// func doRequest(method string, jsonBody []byte, path string, endpoint string) ([]byte, error) {
-// 	bodyReader := bytes.NewReader(jsonBody)
-// 	req, err := http.NewRequest(method, endpoint+path, bodyReader)
-
-// 	if err != nil {
-// 		return []byte{}, err
-// 	}
-
-// 	req.Header.Set("Content-Type", "application/json")
-// 	resp, err := GetHttpUploader().Client.Do(req)
-// 	if err != nil {
-// 		return []byte{}, err
-// 	}
-// 	defer resp.Body.Close()
-
-// 	if resp.StatusCode != http.StatusOK {
-// 		return []byte{}, fmt.Errorf("%s request failed: %s%s", method, endpoint, path)
-// 	}
-
-// 	resBody, err := io.ReadAll(resp.Body)
-// 	if err != nil {
-// 		return []byte{}, err
-// 	}
-// 	return resBody, nil
-// }

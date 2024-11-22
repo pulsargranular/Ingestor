@@ -1,0 +1,234 @@
+openapi: 3.1.0
+info:
+  title: S3 Presigned Url Endpoint
+  version: 0.1.0
+servers:
+- url: /
+paths:
+  /presignedUrls:
+    post:
+      operationId: get_presigned_urls
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignedUrlBody'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignedUrlResp'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Presigned Urls
+      tags:
+      - presignedUrls
+  /completeUpload:
+    post:
+      operationId: complete_upload
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteUploadBody'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteUploadBody'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Complete Upload
+      tags:
+      - presignedUrls
+  /abortMultipartUpload:
+    post:
+      operationId: abort_multipart_upload
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbortUploadBody'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Abort Multipart Upload
+      tags:
+      - presignedUrls
+components:
+  schemas:
+    AbortUploadBody:
+      example:
+        UploadID: UploadID
+        ObjectName: ObjectName
+      properties:
+        UploadID:
+          title: Uploadid
+          type: string
+        ObjectName:
+          title: Objectname
+          type: string
+      required:
+      - ObjectName
+      - UploadID
+      title: AbortUploadBody
+    CompletePart:
+      example:
+        PartNumber: 0
+        ETag: ETag
+        ChecksumSHA256: ChecksumSHA256
+      properties:
+        PartNumber:
+          title: Partnumber
+          type: integer
+        ETag:
+          title: Etag
+          type: string
+        ChecksumSHA256:
+          title: Checksumsha256
+          type: string
+      required:
+      - ChecksumSHA256
+      - ETag
+      - PartNumber
+      title: CompletePart
+    CompleteUploadBody:
+      example:
+        Parts:
+        - PartNumber: 0
+          ETag: ETag
+          ChecksumSHA256: ChecksumSHA256
+        - PartNumber: 0
+          ETag: ETag
+          ChecksumSHA256: ChecksumSHA256
+        UploadID: UploadID
+        ObjectName: ObjectName
+        ChecksumSHA256: ChecksumSHA256
+      properties:
+        ObjectName:
+          title: Objectname
+          type: string
+        UploadID:
+          title: Uploadid
+          type: string
+        Parts:
+          items:
+            $ref: '#/components/schemas/CompletePart'
+          title: Parts
+          type: array
+        ChecksumSHA256:
+          title: Checksumsha256
+          type: string
+      required:
+      - ChecksumSHA256
+      - ObjectName
+      - Parts
+      - UploadID
+      title: CompleteUploadBody
+    HTTPValidationError:
+      example:
+        detail:
+        - msg: msg
+          loc:
+          - ValidationError_loc_inner
+          - ValidationError_loc_inner
+          type: type
+        - msg: msg
+          loc:
+          - ValidationError_loc_inner
+          - ValidationError_loc_inner
+          type: type
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          title: detail
+          type: array
+      title: HTTPValidationError
+    PresignedUrlBody:
+      example:
+        Parts: 0
+        ObjectName: ObjectName
+      properties:
+        ObjectName:
+          title: Objectname
+          type: string
+        Parts:
+          title: Parts
+          type: integer
+      required:
+      - ObjectName
+      - Parts
+      title: PresignedUrlBody
+    PresignedUrlResp:
+      example:
+        Urls:
+        - Urls
+        - Urls
+        UploadID: UploadID
+      properties:
+        UploadID:
+          title: Uploadid
+          type: string
+        Urls:
+          items:
+            type: string
+          title: Urls
+          type: array
+      required:
+      - UploadID
+      - Urls
+      title: PresignedUrlResp
+    ValidationError:
+      example:
+        msg: msg
+        loc:
+        - ValidationError_loc_inner
+        - ValidationError_loc_inner
+        type: type
+      properties:
+        loc:
+          items:
+            $ref: '#/components/schemas/ValidationError_loc_inner'
+          title: loc
+          type: array
+        msg:
+          title: Message
+          type: string
+        type:
+          title: Error Type
+          type: string
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    ValidationError_loc_inner:
+      anyOf:
+      - type: string
+      - type: integer
+      title: ValidationError_loc_inner
