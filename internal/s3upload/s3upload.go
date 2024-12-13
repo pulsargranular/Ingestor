@@ -61,7 +61,7 @@ func UploadS3(ctx context.Context, datasetPID string, datasetSourceFolder string
 }
 
 func uploadFiles(ctx context.Context, s3Objects *S3Objects, options task.S3TransferConfig, transferNotifier *TransferNotifier, uploadId uuid.UUID) error {
-	errorGroup, ctx := errgroup.WithContext(ctx)
+	errorGroup, context := errgroup.WithContext(ctx)
 	objectsChannel := make(chan int, len(s3Objects.Files))
 
 	nWorkers := max(options.ConcurrentFiles, len(s3Objects.Files))
@@ -71,11 +71,11 @@ func uploadFiles(ctx context.Context, s3Objects *S3Objects, options task.S3Trans
 			func() error {
 				for idx := range objectsChannel {
 					select {
-					case <-ctx.Done():
+					case <-context.Done():
 						transferNotifier.notifier.OnTaskCanceled(uploadId)
-						return ctx.Err()
+						return context.Err()
 					default:
-						err := uploadFile(ctx, s3Objects.Files[idx], s3Objects.ObjectNames[idx], options, transferNotifier)
+						err := uploadFile(context, s3Objects.Files[idx], s3Objects.ObjectNames[idx], options, transferNotifier)
 						if err != nil {
 							return err
 						}

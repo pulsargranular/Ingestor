@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"log/slog"
 	"math"
 	"net/http"
 	"os"
@@ -62,7 +61,7 @@ func GetPresignedUrlServer(endpoint string) *ClientWithResponses {
 // is initiated
 func getPresignedUrls(object_name string, part int, endpoint string) (string, []string, error) {
 
-	r, err := GetPresignedUrlServer(endpoint).GetPresignedUrlsWithResponse(context.Background(), PresignedUrlBody{
+	response, err := GetPresignedUrlServer(endpoint).GetPresignedUrlsWithResponse(context.Background(), PresignedUrlBody{
 		ObjectName: object_name,
 		Parts:      part,
 	})
@@ -70,15 +69,23 @@ func getPresignedUrls(object_name string, part int, endpoint string) (string, []
 	if err != nil {
 		return "", []string{}, err
 	}
-	if r.StatusCode() != http.StatusOK {
-		return "", []string{}, fmt.Errorf(r.Status())
-	}
 
-	return r.JSON200.UploadID, r.JSON200.Urls, err
+	if response.StatusCode() == http.StatusInternalServerError {
+		return "", []string{}, fmt.Errorf("%s: %s", response.JSON500.Message, *response.JSON500.Details)
+	}
+	if response.StatusCode() == http.StatusUnprocessableEntity {
+		err_string := ""
+		for _, d := range *response.JSON422.Detail {
+			err_string += " " + d.Msg
+		}
+
+		return "", []string{}, fmt.Errorf("%s", err_string)
+	}
+	return response.JSON200.UploadID, response.JSON200.Urls, err
 }
 
 func completeMultiPartUpload(object_name string, uploadID string, endpoint string, parts []CompletePart, full_file_checksum string) error {
-	r, err := GetPresignedUrlServer(endpoint).CompleteUploadWithResponse(context.Background(), CompleteUploadBody{
+	response, err := GetPresignedUrlServer(endpoint).CompleteUploadWithResponse(context.Background(), CompleteUploadBody{
 		ObjectName:     object_name,
 		UploadID:       uploadID,
 		Parts:          parts,
@@ -88,14 +95,22 @@ func completeMultiPartUpload(object_name string, uploadID string, endpoint strin
 	if err != nil {
 		return err
 	}
-	if r.StatusCode() != http.StatusOK {
-		return fmt.Errorf("")
+
+	if response.StatusCode() == http.StatusInternalServerError {
+		return fmt.Errorf("%s: %s", response.JSON500.Message, *response.JSON500.Details)
+	}
+	if response.StatusCode() == http.StatusUnprocessableEntity {
+		err_string := ""
+		for _, d := range *response.JSON422.Detail {
+			err_string += " " + d.Msg
+		}
+
+		return fmt.Errorf("%s", err_string)
 	}
 	return nil
 }
 
 func uploadFile(ctx context.Context, filePath string, objectName string, options task.S3TransferConfig, notifier *TransferNotifier) error {
-	// Open the file
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("error opening file: %w", err)
@@ -103,15 +118,12 @@ func uploadFile(ctx context.Context, filePath string, objectName string, options
 
 	defer file.Close()
 
-	// Get the file size
 	fileInfo, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("error getting file info: %w", err)
 	}
 
 	totalSize := fileInfo.Size()
-	fmt.Printf("Uploading file: %s (%d bytes)\n", filePath, totalSize)
-
 	httpClient := GetHttpUploader(options.PoolSize)
 
 	if totalSize < options.ChunkSizeMB*MiB {
@@ -127,6 +139,7 @@ func uploadFile(ctx context.Context, filePath string, objectName string, options
 		if err_abort != nil {
 			return fmt.Errorf("while aborting a multipart upload an error occured: %s. Previous error: %s", err_abort.Error(), err_upload.Error())
 		}
+		return err_upload
 	}
 	return err
 }
@@ -144,7 +157,6 @@ func abortMultipartUpload(uploadID string, objectName string, endpoint string) e
 		return fmt.Errorf("")
 	}
 	return nil
-
 }
 
 func doUploadSingleFile(ctx context.Context, objectName string, file *os.File, httpClient *HttpUploader, endpoint string, notifier *TransferNotifier) error {
@@ -204,7 +216,6 @@ func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, 
 
 			parts[partNumber] = CompletePart{ETag: etag, PartNumber: partNumber + 1, ChecksumSHA256: base64hash}
 
-			fmt.Printf("Uploaded part %d\n", partNumber+1)
 			return nil
 		})
 	}
@@ -218,14 +229,12 @@ func doUploadMultipart(ctx context.Context, totalSize int64, objectName string, 
 	c := strings.Join(partChecksums, "")
 	n := sha256.Sum256([]byte(c))
 	base64hash := base64.StdEncoding.EncodeToString(n[:])
-	slog.Info("Calculated file digest", "file", file.Name(), "sha256", base64hash)
 
 	err = completeMultiPartUpload(objectName, uploadID, options.Endpoint, parts, base64hash)
 	if err != nil {
-		return uploadID, fmt.Errorf("error completing multipart upload: %w", err)
+		return uploadID, fmt.Errorf("error completing multipart upload: %s", err.Error())
 	}
 
-	fmt.Println("Multipart upload completed successfully.")
 	return uploadID, nil
 }
 
