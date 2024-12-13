@@ -1,6 +1,7 @@
 openapi: 3.1.0
 info:
-  title: S3 Presigned Url Endpoint
+  title: ETHZ Archiver Service
+  description: REST API endpoint provider for presigned S3 upload and archiving workflow scheduling
   version: 0.1.0
 servers:
 - url: /
@@ -27,6 +28,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+          description: Internal Server Error
       summary: Get Presigned Urls
       tags:
       - presignedUrls
@@ -44,7 +51,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CompleteUploadBody'
+                $ref: '#/components/schemas/CompleteUploadResp'
           description: Successful Response
         "422":
           content:
@@ -52,6 +59,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+          description: Internal Server Error
       summary: Complete Upload
       tags:
       - presignedUrls
@@ -68,7 +81,8 @@ paths:
         "200":
           content:
             application/json:
-              schema: {}
+              schema: 
+                $ref: '#/components/schemas/AbortUploadResp'
           description: Successful Response
         "422":
           content:
@@ -76,6 +90,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+          description: Internal Server Error
       summary: Abort Multipart Upload
       tags:
       - presignedUrls
@@ -95,7 +115,27 @@ components:
       required:
       - ObjectName
       - UploadID
-      title: AbortUploadBody
+      title: AbortUploadBody    
+    AbortUploadResp:
+      example:
+        UploadID: UploadID
+        ObjectName: ObjectName
+        Message: Succeeded
+      properties:
+        Message:
+          title: Message 
+          type: string
+        UploadID:
+          title: Uploadid
+          type: string
+        ObjectName:
+          title: Objectname
+          type: string
+      required:
+      - ObjectName
+      - UploadID
+      - Message
+      title: AbortUploadResp
     CompletePart:
       example:
         PartNumber: 0
@@ -149,6 +189,21 @@ components:
       - Parts
       - UploadID
       title: CompleteUploadBody
+    CompleteUploadResp:
+      example:
+        Location: http://minio/object
+        Key: ObjectName
+      properties:
+        Location:
+          title: Location
+          type: string
+        Key:
+          title: Key 
+          type: string
+      required:
+      - Location
+      - Key
+      title: CompleteUploadResp
     HTTPValidationError:
       example:
         detail:
@@ -169,6 +224,25 @@ components:
           title: detail
           type: array
       title: HTTPValidationError
+    InternalError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: A specific error code indicating the error type
+        message:
+          type: string
+          description: A human-readable message providing more details about the error
+        details:
+          type: string
+          description: Additional context or information about the error
+        timestamp:
+          type: string
+          format: date-time
+          description: The time when the error occurred
     PresignedUrlBody:
       example:
         Parts: 0
@@ -180,6 +254,7 @@ components:
         Parts:
           title: Parts
           type: integer
+          minimum: 1
       required:
       - ObjectName
       - Parts

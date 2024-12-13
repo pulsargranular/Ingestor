@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/oapi-codegen/runtime"
@@ -22,6 +23,13 @@ import (
 
 // AbortUploadBody defines model for AbortUploadBody.
 type AbortUploadBody struct {
+	ObjectName string `json:"ObjectName"`
+	UploadID   string `json:"UploadID"`
+}
+
+// AbortUploadResp defines model for AbortUploadResp.
+type AbortUploadResp struct {
+	Message    string `json:"Message"`
 	ObjectName string `json:"ObjectName"`
 	UploadID   string `json:"UploadID"`
 }
@@ -41,9 +49,30 @@ type CompleteUploadBody struct {
 	UploadID       string         `json:"UploadID"`
 }
 
+// CompleteUploadResp defines model for CompleteUploadResp.
+type CompleteUploadResp struct {
+	Key      string `json:"Key"`
+	Location string `json:"Location"`
+}
+
 // HTTPValidationError defines model for HTTPValidationError.
 type HTTPValidationError struct {
 	Detail *[]ValidationError `json:"detail,omitempty"`
+}
+
+// InternalError defines model for InternalError.
+type InternalError struct {
+	// Code A specific error code indicating the error type
+	Code string `json:"code"`
+
+	// Details Additional context or information about the error
+	Details *string `json:"details,omitempty"`
+
+	// Message A human-readable message providing more details about the error
+	Message string `json:"message"`
+
+	// Timestamp The time when the error occurred
+	Timestamp *time.Time `json:"timestamp,omitempty"`
 }
 
 // PresignedUrlBody defines model for PresignedUrlBody.
@@ -490,8 +519,9 @@ type ClientWithResponsesInterface interface {
 type AbortMultipartUploadResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *interface{}
+	JSON200      *AbortUploadResp
 	JSON422      *HTTPValidationError
+	JSON500      *InternalError
 }
 
 // Status returns HTTPResponse.Status
@@ -513,8 +543,9 @@ func (r AbortMultipartUploadResponse) StatusCode() int {
 type CompleteUploadResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *CompleteUploadBody
+	JSON200      *CompleteUploadResp
 	JSON422      *HTTPValidationError
+	JSON500      *InternalError
 }
 
 // Status returns HTTPResponse.Status
@@ -538,6 +569,7 @@ type GetPresignedUrlsResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *PresignedUrlResp
 	JSON422      *HTTPValidationError
+	JSON500      *InternalError
 }
 
 // Status returns HTTPResponse.Status
@@ -622,7 +654,7 @@ func ParseAbortMultipartUploadResponse(rsp *http.Response) (*AbortMultipartUploa
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest interface{}
+		var dest AbortUploadResp
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -634,6 +666,13 @@ func ParseAbortMultipartUploadResponse(rsp *http.Response) (*AbortMultipartUploa
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	}
 
@@ -655,7 +694,7 @@ func ParseCompleteUploadResponse(rsp *http.Response) (*CompleteUploadResponse, e
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest CompleteUploadBody
+		var dest CompleteUploadResp
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -667,6 +706,13 @@ func ParseCompleteUploadResponse(rsp *http.Response) (*CompleteUploadResponse, e
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	}
 
@@ -701,6 +747,13 @@ func ParseGetPresignedUrlsResponse(rsp *http.Response) (*GetPresignedUrlsRespons
 		}
 		response.JSON422 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
 	}
 
 	return response, nil
@@ -709,21 +762,26 @@ func ParseGetPresignedUrlsResponse(rsp *http.Response) (*GetPresignedUrlsRespons
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/9RWS2/bOBD+K8LsHoXY6+zuQbc0NZIc8kBi9xIYASONbaYSyZJUUcPwfy9IWRJNSnk5",
-	"LpCLJY/IeXzfxxmuIeWF4AyZVpCsQaVLLIh9PXnkUk9Fzkn2hWcrY8JfpBA5mtfrxydM9RUpEBL3TwzV",
-	"louvkLSvmxiE5AKlpqj87WvQVOetH1b50SthbEpLyhbGQ+u43VHZaBau38Qg8UdJJWaQ3PekOIsbT365",
-	"mxhOualW4w2R2iv/dInpd1UWd+cno//+h8Q3xDCekAUk1SMG4+KqLB5RQjIM0PC9tfXVX9SSVG4DVKo4",
-	"7Y6xtgGDdW4G7WpjZZW12UOZxgXKAMLuEnc8O3jugOeA2auolyHt15wJoiC535uYfR3MXqn/fRh/z9nZ",
-	"ArQGqrGwL39LnEMCfw3aBjDYnv6Bz52rFtW6J1KS1d4n8zma4yZk15HtkNQmhvPJ5OYbyWlGNOVsLCWX",
-	"ntIy1ITmVi45T00O3vqHnKcPlDF7Kvq/zWIolJGC+W3KtA+jpIP5ngVyqit6Jb8+PA7FW08+x86KLnyN",
-	"wiQqumCYTWX+pnmxlebwQ2ZEo/Meyfb1to6MHKEFtXn13qISXr1dXSCGqcxNm6qe278hm287TrVXh/tg",
-	"ReOlihtw60Lhp9uDg615E0jYg+Fw58vDzAZ6n/ydiA5UxmHY6Ww+LSuXqBRZdCqxMjhz2YSKJsb6Ukes",
-	"QjtFOxR0nLz+cpI1ELa6nttW52e4Ds5EfxgXIpMtZXPuFnd3HDXaiKYyj8YsE5wyDTH8RKkoZ5DA8Oif",
-	"o6HJmAtkRFBI4NiaYhBELy1vA2LuYZdlrqkg9YXMfBBc2UuYId0mdpHVtzZ/dYUmKl33oZQzjcxuJ0Lk",
-	"NLUOBk/KpFVfel9STXBB3KVNyxKtQQnOVCXK0XD4lvDWY4YqlVToCrK7Mk1RqXmZR7dbzwbAf0ejD6ur",
-	"s5+HmbRLonpNDKosCiJXNRFRw0TUUKHJwrY84fQO0/Q2Mdhs2gHez/LuoD8Qv123iQ+n+F0ZfFJJ1OW8",
-	"Tgu7tl4pnKG+2Vl5GDGEE//PSiGctJ9YCGeod8eDek4LZitKMzXs2CplDgkMzK33dwAAAP//aD4jzq0Q",
-	"AAA=",
+	"H4sIAAAAAAAC/+xYzXLbNhB+FQzaIxMpTtMDb27qiT1tEo8t91CPJwOTKxEJCaAAaEej0bt3FuAPRIKx",
+	"E1mZHHKxSHCxP99+u1h4QzNZKSlAWEPTDTVZARVzj8e3UtsrVUqW/yHzNS7BZ1apEvDx/e1HyOw7VgFN",
+	"w5eE+i1nf9K0f9wmVGmpQFsOZrh9Qy23Za9HeD12rXDNWM3FCjX0ivsdfo3nY/ltQjX8V3MNOU2vJ1y8",
+	"STpNw3C3Sbh0AUYNEHgLxrAVbr2sswwgB/RiT1w6pX2I7VIEkR8ExaTzMY6nA2+b0NcSsbNwzrQdgPm6",
+	"gOyTqavL0+OjV7/TdLiQ0JMFW9HU/yQUVbyrq1vQNJ2PUBxq6yNtv5iCebUjfLydfseJdQZHcqEHvTSu",
+	"Cr/a7eHCwgr0CMx4iDuaAzx3wAvAnKzQhyGd5ioaMTS93jsx+yq4eWTd7JPxb6miBqAN5RYq9/CrhiVN",
+	"6S+zvqHOmm46G+YuZIvp1TOt2XrvGv1SmpPOZKwFRig1IlqkEf4F6yF//pYZs1wKmtLCWpXOZhUXXM6k",
+	"Exqnz6noY8XXCOi91l60W3sIlkAQ1U+G3Tar08Xi/B9W8tztOtFa6kHcOVjGS1clpczQxkD+QymzD1wI",
+	"1wymv90ktDJYAfi3C8P9YAEdTPfNKA1tRI+k9RCegNmNpiG1A4kYvtuEngkLWrCyA3zXw0zmDfYm01w1",
+	"HDsmRkHGlzwjgPsIihEuco45FytiC2i+OH8i3PIOm4juPOf4yEqSSWHhsyVSEy6WUlfOdcJuZW17EzHt",
+	"VX+sDz0v6oqJZxpYzm5LII0kUVre8Rx9r6QG0rj3GFuWV2Asq9TY2qIAgp/JfQEiAEVmWa21m198WJhB",
+	"ZuEZCj9YWS4nfYw3nXxf7ecaDF8JyK90+VXDZNNn508yQHZNG5tRVVc0fTHZi6cO7Yh3QSsZxTmIPdI9",
+	"Y8dbQq80cvHa/zav43r9unOi1RpUd4Q8jRZvd1S9IRRDdydwaBvql5vp4TroADNn6NsaXGAxgAoVjo9w",
+	"58+jhni/EAycriQX0T41yIA3HQQdpCDSW6fDSTeUifX7pTvMhh5uRjUxbSaECL3FPjnuQxcnlwtyfH5G",
+	"QORKcmGbdgeaLKUmqmUPuXxJascywkROmM4Kfoc98V7qT8tS3hPMVF6X6Gjv08ni9F9y7IRBk0vQdzxD",
+	"MO9AG+/A/PmL53OERCoQTHGa0pduKaGK2cIRY8bwBvO2Li1XrL3KuBNJGnd9QVa5yM/y9r4zlPbpAmPb",
+	"pueOEOG2M6VK7meS2UfjpxpPvIdoObqq7vLC6hrcglFSGM/6o/n8EOZ9bW/d+Rkm2N2IjVnWJblo3EC0",
+	"fzs6ejIvovPD2JNehHR18OoJwdidVyIOtAKOh6BbL7YJNXVVMb1uuUM68pCOPZat3DGggn6KB8E2oc6Z",
+	"fmydJubueHsgSsauDt+XlbEp/icx9yRmC+rjGLm7NknIN2DPdyQPQ8nxLPZ9CTmegX7ScU86vgFLOlhJ",
+	"O6NOMRK3Ol3+P1m1LmlKZ3jv/T8AAP//Yr2x2vYWAAA=",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
