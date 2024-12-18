@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"path"
 
 	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -26,6 +27,6 @@ func SelectFolder(context context.Context) (DatasetFolder, error) {
 
 	id := uuid.New()
 
-	selected_folder := DatasetFolder{FolderPath: folder, Id: id}
+	selected_folder := DatasetFolder{FolderPath: path.Clean(folder), Id: id}
 	return selected_folder, nil
 }

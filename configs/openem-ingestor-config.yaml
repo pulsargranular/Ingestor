@@ -13,6 +13,11 @@ Transfer:
     RefreshToken: "refresh_token"
     Scopes:
       - "urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/[collection_id1]/data_access]"
+  S3:
+    Endpoint: http://scopem-openem.ethz.ch/api/v1
+    ChunkSizeMB: 64
+    ConcurrentFiles: 4
+    PoolSize: 8
 Misc:
   ConcurrencyLimit: 2
   Port: 8888

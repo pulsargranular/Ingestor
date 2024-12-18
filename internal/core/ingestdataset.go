@@ -3,20 +3,18 @@ package core
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/SwissOpenEM/Ingestor/internal/metadataextractor"
 	"github.com/SwissOpenEM/Ingestor/internal/s3upload"
 	"github.com/SwissOpenEM/Ingestor/internal/task"
 	"github.com/fatih/color"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/paulscherrerinstitute/scicat-cli/v3/datasetIngestor"
 	"github.com/paulscherrerinstitute/scicat-cli/v3/datasetUtils"
 )
@@ -119,9 +117,7 @@ func IngestDataset(
 	config Config,
 	notifier task.ProgressNotifier,
 ) (string, error) {
-	var http_client = &http.Client{
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
-		Timeout:   120 * time.Second}
+	var http_client = retryablehttp.NewClient().StandardClient()
 
 	SCICAT_API_URL := config.Scicat.Host
 
@@ -207,12 +203,16 @@ func IngestDataset(
 			fileList = append(fileList, f.Path)
 		}
 		err = s3upload.UploadS3(task_context, datasetId, datasetFolder, fileList, ingestionTask.DatasetFolder.Id, config.Transfer.S3, notifier)
+		if err != nil {
+			return datasetId, err
+		}
+
 	case task.TransferGlobus:
 		// globus doesn't work with absolute folders, this library uses sourcePrefix to adapt the path to the globus' own path from a relative path
 		relativeDatasetFolder := strings.TrimPrefix(datasetFolder, config.WebServer.CollectionLocation)
 		err = GlobusTransfer(config.Transfer.Globus, ingestionTask, task_context, ingestionTask.DatasetFolder.Id, relativeDatasetFolder, fullFileArray, notifier)
 	_:
-		return "", fmt.Errorf("unknown transfer method: %s", ingestionTask.TransferMethod)
+		return datasetId, fmt.Errorf("unknown transfer method: %d", ingestionTask.TransferMethod)
 	}
 
 	if err != nil {

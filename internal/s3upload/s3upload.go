@@ -64,7 +64,7 @@ func uploadFiles(ctx context.Context, s3Objects *S3Objects, options task.S3Trans
 	errorGroup, ctx := errgroup.WithContext(ctx)
 	objectsChannel := make(chan int, len(s3Objects.Files))
 
-	nWorkers := max(2, len(s3Objects.Files))
+	nWorkers := max(options.ConcurrentFiles, len(s3Objects.Files))
 
 	for t := 0; t < nWorkers; t++ {
 		errorGroup.Go(
@@ -75,7 +75,7 @@ func uploadFiles(ctx context.Context, s3Objects *S3Objects, options task.S3Trans
 						transferNotifier.notifier.OnTaskCanceled(uploadId)
 						return ctx.Err()
 					default:
-						err := uploadFile(ctx, s3Objects.Files[idx], s3Objects.ObjectNames[idx], options.Endpoint, transferNotifier)
+						err := uploadFile(ctx, s3Objects.Files[idx], s3Objects.ObjectNames[idx], options, transferNotifier)
 						if err != nil {
 							return err
 						}
