@@ -6,7 +6,7 @@ info:
 servers:
 - url: /
 paths:
-  /presignedUrls:
+  /s3/presignedUrls:
     post:
       operationId: get_presigned_urls
       requestBody:
@@ -37,7 +37,7 @@ paths:
       summary: Get Presigned Urls
       tags:
       - presignedUrls
-  /completeUpload:
+  /s3/completeUpload:
     post:
       operationId: complete_upload
       requestBody:
@@ -68,7 +68,7 @@ paths:
       summary: Complete Upload
       tags:
       - presignedUrls
-  /abortMultipartUpload:
+  /s3/abortMultipartUpload:
     post:
       operationId: abort_multipart_upload
       requestBody:
