@@ -22,10 +22,12 @@ func main() {
 	var config core.Config
 	var err error
 	if config, err = core.ReadConfig(core.DefaultConfigFileName()); err != nil {
+		slog.Info("Config file read", "file", viper.ConfigFileUsed())
 		panic(fmt.Errorf("failed to read config file: %w", err))
 	}
 
-	slog.Info("Config file read", "file", viper.ConfigFileUsed())
+	log.Println(core.GetFullConfig())
+	log.Printf("Config file used: %s", core.GetCurrentConfigFilePath())
 	log.Println(viper.AllSettings())
 
 	ctx := context.Background()

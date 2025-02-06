@@ -1,0 +1,86 @@
+services:
+  ingestor:
+    image: ghcr.io/swissopenem/ingestor:pr-79
+    ports:
+      - 8001:8080
+    environment:
+      - GIN_MODE=release
+    configs:
+      - source: openem-ingestor-config.yaml
+        target: /app/openem-ingestor-config.yaml
+    volumes:
+      - ${HOST_COLLECTION_PATH}:/mnt/collection_location
+      # Enable this to mount network NFS share
+      # - collection_location_nfs_share:/mnt/collection_location
+
+# Enable and configure this to mount NFS share
+# volumes:
+  # collection_location_nfs_share:
+  #   driver_opts:
+  #     type: "nfs"
+  #     o: "nfsvers=3,addr=${NFS_SERVER_ADDRESS},nolock"
+
+configs:
+  openem-ingestor-config.yaml:
+    content: |
+      Scicat:
+        Host: ${SCICAT_BACKEND_URL}/api/v3
+        AccessToken: ${SCICAT_ACCESS_TOKEN}
+      Transfer:
+        Method: S3
+        S3:
+          Endpoint: s3:9000
+      Misc:
+        ConcurrencyLimit: 2
+        Port: 8080
+      MetadataExtractors:
+        InstallationPath: ./extractors/
+        SchemasLocation: ./schemas/
+        DownloadMissingExtractors:  true
+        Timeout: 10m
+        Extractors:
+        - Name: LS
+          GithubOrg: SwissOpenEM
+          GithubProject: LS_Metadata_reader
+          Version: v0.2.8
+          Executable: LS_Metadata_reader
+          Checksum: e8a2abc7a0d8759edf4559e27879b7977000a868a2f7d39b7804ff5e5c0d1559 
+          ChecksumAlg: sha256
+          CommandLineTemplate: "-i '{{.SourceFolder}}' -o '{{.OutputFile}}'"
+          Methods:
+            - Name: Single Particle
+              Schema: oscem_schemas.schema.json
+            - Name: Cellular Tomography
+              Schema: oscem_schemas.schema.json
+            - Name: Tomography
+              Schema: oscem_schemas.schema.json
+            - Name: EnvironmentalTomography
+              Schema: oscem_schemas.schema.json
+      WebServer:
+        Auth:
+          Disable: true
+          Frontend:
+            Origin: ${SCICAT_FRONTEND_URL}
+            RedirectPath: "/ingestor"
+          SessionDuration: 28800
+          OAuth2:
+            ClientID: "ingestor"
+            RedirectURL: "${KEYCLOAK_URL}callback"
+            Scopes:
+              - email
+          OIDC:
+            IssuerURL: "${KEYCLOAK_URL}/realms/facility"
+          JWT:
+            UseJWKS: true
+            JwksURL: "${KEYCLOAK_URL}/realms/facility/protocol/openid-connect/certs"
+            JwksSignatureMethods:
+              - RS256
+          RBAC:
+            AdminRole: "FACILITY-ingestor-admin"
+            CreateModifyTasksRole: "FACILITY-ingestor-write"
+            ViewTasksRole: "FACILITY-ingestor-read"
+        Paths:
+          CollectionLocation: "/mnt/collection_location"
+        MetadataExtJobs:
+          NoWorkers: 100
+          QueueSize: 200

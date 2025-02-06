@@ -2,7 +2,10 @@
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
 
 name: Build and Test Workflow
-
+env:
+  # Use docker.io for Docker Hub if empty
+  REGISTRY: ghcr.io
+  INGESTOR_IMAGE_NAME: ${{ github.repository }}
 on:
   push:
     branches: [ "main" ]
@@ -25,7 +28,7 @@ jobs:
         with:
           version: v1.60.3
 
-  build_linux:
+  run_tests_linux:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
@@ -34,11 +37,14 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.21'
+
     - name: Set up gotestfmt
       uses: gotesttools/gotestfmt-action@v2
       with:
         # Optional: pass GITHUB_TOKEN to avoid rate limiting.
         token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Generate REST API and Docs
+      run: go generate ./internal/webserver
 
     - name: Test Internal Package
       run: |
@@ -53,14 +59,8 @@ jobs:
         name: linux-interal-test-log
         path: gotestinternal.log
         if-no-files-found: error
-
-    - name: Generate REST API and Docs
-      run: go generate ./internal/webserver
-
-    - name: Build Service
-      run: go build -C ./cmd/openem-ingestor-service/ -v
-
-    - name: Test Internal Packages
+            
+    - name: Test Service
       run: |
         set -euo pipefail
         go test -json -v  ./cmd/openem-ingestor-service/ 2>&1 | tee gotestservice.log | gotestfmt
@@ -71,7 +71,96 @@ jobs:
       with:
         name: linux-service-test-log
         path: gotestservice.log
+        if-no-files-found: error 
+
+
+
+  run_tests_windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Set up gotestfmt
+      uses: gotesttools/gotestfmt-action@v2
+      with:
+        # Optional: pass GITHUB_TOKEN to avoid rate limiting.
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Generate REST API and Docs
+      run: go generate ./internal/webserver
+
+    - name: Test Internal Package
+      run: |
+        go generate ./internal/webserver
+        go test -json -v  ./internal/... 2>&1 | tee gotestinternal.log 
+  
+    - name: Upload Test Log
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: windows-internal-test-log
+        path: gotestinternal.log
         if-no-files-found: error
+
+  build_docker_image:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        # if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.INGESTOR_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./
+          file: ./Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  build_linux:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Generate REST API and Docs
+      run: go generate ./internal/webserver
+
+    - name: Build Service
+      run: go build -C ./cmd/openem-ingestor-service/ -v
 
     - name: Install Wails dependencies
       run: sudo apt-get update && sudo apt-get install -qq -y libwebkit2gtk-4.0-dev libgtk-3-dev npm pkg-config
@@ -82,19 +171,6 @@ jobs:
     - name: Build Desktop App
       working-directory: ./cmd/openem-ingestor-app/
       run: wails build
-
-    - name: Test App
-      run: |
-        set -euo pipefail
-        go test -json -v  ./cmd/openem-ingestor-app/ 2>&1 | tee gotestapp.log | gotestfmt
-
-    - name: Upload test log
-      uses: actions/upload-artifact@v4
-      if: success()
-      with:
-        name: linux-app-test-log
-        path: gotestapp.log
-        if-no-files-found: error
 
   build_windows:
     runs-on: windows-latest
@@ -111,22 +187,6 @@ jobs:
           # Optional: pass GITHUB_TOKEN to avoid rate limiting.
           token: ${{ secrets.GITHUB_TOKEN }}
   
-      - name: Test Internal Package
-        run: |
-          go generate ./internal/webserver
-          go test -json -v  ./internal/... 2>&1 | tee gotestinternal.log 
-  
-      - name: Upload Test Log
-        uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: windows-internal-test-log
-          path: gotestinternal.log
-          if-no-files-found: error
-  
-      - name: Generate REST API and Docs
-        run: go generate ./internal/webserver
-   
       - name: Set up Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
   
@@ -137,6 +197,7 @@ jobs:
       - name: Test App
         run: |
           go test -json -v  ./cmd/openem-ingestor-app/ 2>&1 | tee gotestapp.log
+
       - name: Upload Test Log
         uses: actions/upload-artifact@v4
         if: success()
@@ -195,3 +256,4 @@ jobs:
           name: macos-app-test-log
           path: gotestapp.log
           if-no-files-found: error
+
